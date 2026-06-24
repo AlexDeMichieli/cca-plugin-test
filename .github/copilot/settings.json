@@ -1,0 +1,13 @@
+{
+  "enabledPlugins": {
+    "actions-migrator@my-fork": true
+  },
+  "extraKnownMarketplaces": {
+    "my-fork": {
+      "source": {
+        "source": "github",
+        "repo": "AlexDeMichieli/actions-migrations-via-copilot"
+      }
+    }
+  }
+}
