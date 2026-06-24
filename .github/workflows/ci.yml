@@ -1,0 +1,88 @@
+# Migrated from Jenkinsfile
+#
+# Key migration notes
+# ───────────────────
+# • agent any            → runs-on: ubuntu-latest
+# • checkout scm         → actions/checkout@v4  (automatic on every job)
+# • junit 'test-results/*.xml'  → upload-artifact (always); GitHub Actions has no
+#                                  built-in JUnit publisher; results are retained as
+#                                  a downloadable artifact.  Add mikepenz/action-junit-report
+#                                  for inline PR annotations if needed.
+# • archiveArtifacts     → upload-artifact
+# • when { branch 'main' } → if: github.ref == 'refs/heads/main'
+# • withCredentials(usernamePassword(credentialsId:'docker-registry'))
+#                        → secrets.DOCKER_REGISTRY_USER / DOCKER_REGISTRY_PASS
+#                          (add these in Settings → Secrets and variables → Actions)
+# • $BUILD_NUMBER        → ${{ github.run_number }}
+# • post { always { cleanWs() } }
+#                        → no action needed; GitHub-hosted runner workspaces are
+#                          ephemeral and discarded automatically after each job.
+
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: ["**"]
+
+env:
+  NODE_VERSION: "20"
+  DOCKER_REGISTRY: "registry.example.com"
+
+jobs:
+  ci:
+    name: Build & Test
+    runs-on: ubuntu-latest
+
+    steps:
+      # ── Checkout ──────────────────────────────────────────────────────────────
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # ── Install ───────────────────────────────────────────────────────────────
+      - name: Set up Node.js ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      # ── Test ──────────────────────────────────────────────────────────────────
+      - name: Test
+        run: npm test
+
+      # Mirrors: post { always { junit 'test-results/*.xml' } }
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: test-results/*.xml
+          if-no-files-found: ignore
+
+      # ── Build ─────────────────────────────────────────────────────────────────
+      - name: Build
+        run: npm run build
+
+      # Mirrors: archiveArtifacts artifacts: 'dist/**', fingerprint: true
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/**
+          if-no-files-found: warn
+
+      # ── Publish (main branch only) ────────────────────────────────────────────
+      # Mirrors: when { branch 'main' } + withCredentials([usernamePassword(...)])
+      # Required secrets: DOCKER_REGISTRY_USER, DOCKER_REGISTRY_PASS
+      - name: Publish – Docker push
+        if: github.ref == 'refs/heads/main'
+        env:
+          REG_USER: ${{ secrets.DOCKER_REGISTRY_USER }}
+          REG_PASS: ${{ secrets.DOCKER_REGISTRY_PASS }}
+        run: |
+          echo "$REG_PASS" | docker login "$DOCKER_REGISTRY" -u "$REG_USER" --password-stdin
+          docker push "$DOCKER_REGISTRY/myapp:${{ github.run_number }}"
