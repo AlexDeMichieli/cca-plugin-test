@@ -1,0 +1,84 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: ["**"]
+
+# Least-privilege permissions; the publish step needs no extra scopes.
+permissions:
+  contents: read
+
+env:
+  NODE_VERSION: "20"
+  DOCKER_REGISTRY: "registry.example.com"
+
+jobs:
+  ci:
+    name: CI Pipeline
+    runs-on: ubuntu-latest
+
+    steps:
+      # ── Checkout ──────────────────────────────────────────────────────────
+      # Replaces: checkout scm
+      # actions/checkout v4.2.2
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      # ── Install ───────────────────────────────────────────────────────────
+      # Replaces: sh 'npm ci'
+      # actions/setup-node v4.4.0
+      - name: Set up Node.js ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      # ── Test ──────────────────────────────────────────────────────────────
+      # Replaces: sh 'npm test'
+      - name: Test
+        run: npm test
+
+      # Replaces: post { always { junit 'test-results/*.xml' } }
+      # actions/upload-artifact v4.6.2
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: test-results
+          path: test-results/*.xml
+          if-no-files-found: ignore
+
+      # ── Build ─────────────────────────────────────────────────────────────
+      # Replaces: sh 'npm run build'
+      - name: Build
+        run: npm run build
+
+      # Replaces: archiveArtifacts artifacts: 'dist/**', fingerprint: true
+      # actions/upload-artifact v4.6.2
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: dist
+          path: dist/**
+
+      # ── Publish (main branch only) ────────────────────────────────────────
+      # Replaces: when { branch 'main' } + withCredentials([usernamePassword(...)])
+      # docker/login-action v3.7.0
+      - name: Log in to Docker registry
+        if: github.ref == 'refs/heads/main'
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9
+        with:
+          registry: ${{ env.DOCKER_REGISTRY }}
+          username: ${{ secrets.DOCKER_REGISTRY_USER }}
+          password: ${{ secrets.DOCKER_REGISTRY_PASSWORD }}
+
+      # Replaces: sh 'docker push $DOCKER_REGISTRY/myapp:$BUILD_NUMBER'
+      # $BUILD_NUMBER → ${{ github.run_number }}
+      - name: Push Docker image
+        if: github.ref == 'refs/heads/main'
+        run: docker push ${{ env.DOCKER_REGISTRY }}/myapp:${{ github.run_number }}
