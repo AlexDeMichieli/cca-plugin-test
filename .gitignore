@@ -1,0 +1,6 @@
+# Build tools (not part of the project)
+actionlint
+
+# Node
+node_modules/
+dist/
