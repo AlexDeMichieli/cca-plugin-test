@@ -1,0 +1,62 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - '**'
+  pull_request:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    env:
+      NODE_VERSION: '20'
+      DOCKER_REGISTRY: registry.example.com
+    steps:
+      - name: Checkout
+        uses: actions/checkout@8ade135a41bc03ea155e62e844d188df1ea18608
+
+      - name: Setup Node
+        uses: actions/setup-node@60edb5dd545a775178f52524783378180af0d1f8
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Test
+        run: npm test
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808
+        with:
+          name: test-results
+          path: test-results/*.xml
+          if-no-files-found: ignore
+
+      - name: Build
+        run: npm run build
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808
+        with:
+          name: dist
+          path: dist/**
+          if-no-files-found: ignore
+
+      - name: Login to Docker registry
+        if: github.ref == 'refs/heads/main'
+        env:
+          REG_USER: ${{ secrets.DOCKER_REGISTRY_USERNAME }}
+          REG_PASS: ${{ secrets.DOCKER_REGISTRY_PASSWORD }}
+        run: echo "$REG_PASS" | docker login "$DOCKER_REGISTRY" -u "$REG_USER" --password-stdin
+
+      - name: Publish image
+        if: github.ref == 'refs/heads/main'
+        run: docker push "$DOCKER_REGISTRY/myapp:${{ github.run_number }}"
