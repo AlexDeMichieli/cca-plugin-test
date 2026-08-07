@@ -1,0 +1,65 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  NODE_VERSION: '20'
+  DOCKER_REGISTRY: registry.example.com
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    steps:
+      # actions/checkout v7.0.1
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      # actions/setup-node v7.0.0
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install
+        run: npm ci
+
+      - name: Test
+        run: npm test
+
+      # Jenkins published JUnit results even when tests failed.
+      # actions/upload-artifact v7.0.1
+      - name: Archive JUnit results
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: junit-results
+          path: test-results/*.xml
+          if-no-files-found: error
+
+      - name: Build
+        run: npm run build
+
+      # Artifact digests provide the integrity check that Jenkins fingerprinting supplied.
+      # actions/upload-artifact v7.0.1
+      - name: Archive dist
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: dist
+          path: dist/**
+          if-no-files-found: error
+
+      - name: Log in to Docker registry
+        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+        env:
+          DOCKER_REGISTRY_USERNAME: ${{ secrets.DOCKER_REGISTRY_USERNAME }}
+          DOCKER_REGISTRY_PASSWORD: ${{ secrets.DOCKER_REGISTRY_PASSWORD }}
+        run: echo "$DOCKER_REGISTRY_PASSWORD" | docker login "$DOCKER_REGISTRY" --username "$DOCKER_REGISTRY_USERNAME" --password-stdin
+
+      - name: Publish Docker image
+        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+        run: docker push "$DOCKER_REGISTRY/myapp:${{ github.run_number }}"
