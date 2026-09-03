@@ -1,0 +1,68 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  NODE_VERSION: '20'
+  DOCKER_REGISTRY: registry.example.com
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    steps:
+      # actions/checkout v7.0.0
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+
+      # actions/setup-node v6.4.0
+      - name: Setup Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install
+        run: npm ci
+
+      - name: Test
+        run: npm test
+
+      # Jenkins junit 'test-results/*.xml'
+      # actions/upload-artifact v7.0.1
+      - name: Archive test results
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: test-results
+          path: test-results/*.xml
+          if-no-files-found: ignore
+
+      - name: Build
+        run: npm run build
+
+      # Jenkins archiveArtifacts artifacts: 'dist/**', fingerprint: true
+      # actions/upload-artifact v7.0.1
+      - name: Archive dist
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: dist
+          path: dist/**
+          if-no-files-found: ignore
+
+      # Jenkins `when { branch 'main' }` publish stage
+      # docker/login-action v4.2.0
+      - name: Login to Docker registry
+        if: github.ref == 'refs/heads/main'
+        uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee
+        with:
+          registry: ${{ env.DOCKER_REGISTRY }}
+          username: ${{ secrets.DOCKER_REGISTRY_USERNAME }}
+          password: ${{ secrets.DOCKER_REGISTRY_PASSWORD }}
+
+      - name: Publish image
+        if: github.ref == 'refs/heads/main'
+        run: docker push "$DOCKER_REGISTRY/myapp:${{ github.run_number }}"
