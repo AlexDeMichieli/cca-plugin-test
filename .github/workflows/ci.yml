@@ -1,0 +1,84 @@
+name: CI
+
+# Triggers: replicate Jenkins SCM polling (runs on every push and PR)
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+# Replaces Jenkins environment { } block
+env:
+  NODE_VERSION: '20'
+  DOCKER_REGISTRY: 'registry.example.com'
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest # agent any → ubuntu-latest
+
+    steps:
+      # ── Stage: Checkout ─────────────────────────────────────────────────────
+      - name: Checkout
+        # actions/checkout v4.2.2
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      # ── Stage: Install ──────────────────────────────────────────────────────
+      - name: Set up Node.js ${{ env.NODE_VERSION }}
+        # actions/setup-node v4.4.0
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      # ── Stage: Test ─────────────────────────────────────────────────────────
+      - name: Run tests
+        run: npm test
+
+      # post { always { junit 'test-results/*.xml' } }
+      # Uploads XML files so GitHub can display test results
+      - name: Upload test results
+        if: always()
+        # actions/upload-artifact v4.6.2
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: test-results
+          path: test-results/*.xml
+          if-no-files-found: ignore
+
+      # ── Stage: Build ────────────────────────────────────────────────────────
+      - name: Build
+        run: npm run build
+
+      # archiveArtifacts artifacts: 'dist/**', fingerprint: true
+      - name: Upload build artifacts
+        # actions/upload-artifact v4.6.2
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: dist
+          path: dist/**
+
+      # ── Stage: Publish (when { branch 'main' }) ─────────────────────────────
+      # withCredentials([usernamePassword(credentialsId: 'docker-registry', ...)]) →
+      # secrets.DOCKER_USERNAME / secrets.DOCKER_PASSWORD
+      - name: Log in to Docker registry
+        if: github.ref == 'refs/heads/main'
+        # docker/login-action v3.4.0
+        uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772
+        with:
+          registry: ${{ env.DOCKER_REGISTRY }}
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      # docker push $DOCKER_REGISTRY/myapp:$BUILD_NUMBER
+      # $BUILD_NUMBER → github.run_number
+      - name: Push Docker image
+        if: github.ref == 'refs/heads/main'
+        run: docker push ${{ env.DOCKER_REGISTRY }}/myapp:${{ github.run_number }}
+
+      # post { always { cleanWs() } }
+      # GitHub Actions runners are ephemeral — workspace is discarded automatically after the job.
+      # No explicit cleanWs() equivalent is needed.
